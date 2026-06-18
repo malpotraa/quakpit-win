@@ -25,16 +25,19 @@ from PySide6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
-    QTransform,
 )
 from PySide6.QtWidgets import QLabel, QWidget
 
 from . import audio, config, winutils
 from .config import assets_dir
 
-PLANE_H = 116  # rendered plane height in px
-HEAD_H = 70
-PROP_H = 84
+# The aircraft is ONE square sprite box. plane / head / blade are the same
+# 1088x1088 aligned canvas, so they're rendered at the same size and stacked at
+# the same origin — each sprite's content already sits where it belongs (head in
+# the cockpit, blade at the nose). Never scale or position them independently.
+AIRCRAFT_S = 150
+# Propeller hub within that shared canvas (from the original art), as fractions.
+PROP_HUB = (0.945, 0.562)
 BANNER_H = 62
 GAP = 18  # space between the towed banner and the tail
 BANNER_FONTS = "Segoe Print, Comic Sans MS, Patrick Hand, Comic Sans, cursive"
@@ -94,22 +97,28 @@ class Overlay(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
-        # The moving rig and its parts.
+        # The moving rig: a banner towed behind the aircraft.
         self._rig = QWidget(self)
         self._banner = Banner(self._rig)
-        self._plane = QLabel(self._rig)
-        self._head = QLabel(self._rig)
-        self._prop = QLabel(self._rig)
 
-        self._plane_pix = self._load("plane.png", PLANE_H)
-        self._head_pix = self._load("head.png", HEAD_H)
-        self._prop_src = self._load("blade.png", PROP_H)
+        # The aircraft: plane + head + blade stacked on one shared square canvas.
+        self._aircraft = QWidget(self._rig)
+        self._aircraft.setFixedSize(AIRCRAFT_S, AIRCRAFT_S)
+        self._plane = QLabel(self._aircraft)
+        self._head = QLabel(self._aircraft)
+        self._prop = QLabel(self._aircraft)
 
+        self._plane_pix = self._load("plane.png", AIRCRAFT_S)
+        self._head_pix = self._load("head.png", AIRCRAFT_S)
+        self._prop_src = self._load("blade.png", AIRCRAFT_S)
         self._plane.setPixmap(self._plane_pix)
         self._head.setPixmap(self._head_pix)
         self._prop.setPixmap(self._prop_src)
         for lbl in (self._plane, self._head, self._prop):
+            lbl.setGeometry(0, 0, AIRCRAFT_S, AIRCRAFT_S)  # same size, same origin
             lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._plane.lower()
+        self._prop.raise_()  # z-order: plane < head < prop
 
         self._prop_angle = 0
         self._prop_timer = QTimer(self)
@@ -186,24 +195,15 @@ class Overlay(QWidget):
         return at or QGuiApplication.primaryScreen()
 
     def _layout_rig(self) -> None:
-        """Place banner | gap | plane inside the rig and size the rig to fit."""
+        """Place banner | gap | aircraft and size the rig to fit."""
         bw, bh = self._banner.width(), self._banner.height()
-        pw, ph = self._plane_pix.width(), self._plane_pix.height()
-        rig_w = bw + GAP + pw
-        rig_h = max(bh, ph, PROP_H)
-        self._rig.resize(rig_w, rig_h)
+        s = AIRCRAFT_S
+        rig_h = max(bh, s)
+        self._rig.resize(bw + GAP + s, rig_h)
 
         cy = rig_h // 2
         self._banner.move(0, cy - bh // 2)
-
-        plane_x = bw + GAP
-        plane_y = cy - ph // 2
-        self._plane.move(plane_x, plane_y)
-
-        # Head sits on the cockpit (upper-left of the plane body).
-        self._head.move(plane_x + int(pw * 0.22), plane_y - int(self._head_pix.height() * 0.45))
-        # Propeller spins at the nose (right edge of the plane).
-        self._prop.move(plane_x + pw - int(self._prop_src.width() * 0.55), cy - PROP_H // 2)
+        self._aircraft.move(bw + GAP, cy - s // 2)
 
     def _on_step(self, value: int) -> None:
         self._rig.move(int(value), self._fly_y)
@@ -214,17 +214,27 @@ class Overlay(QWidget):
         self.hide()  # Option 2: don't leave a full-screen topmost window around
 
     def _spin(self) -> None:
+        # Rotate the blade about its hub (not the image centre) onto a fixed
+        # canvas, so the prop stays pinned at the nose as it spins.
         self._prop_angle = (self._prop_angle + 42) % 360
-        rotated = self._prop_src.transformed(
-            QTransform().rotate(self._prop_angle), Qt.SmoothTransformation
-        )
-        # Keep it centered as it rotates.
-        self._prop.setPixmap(rotated)
-        self._prop.resize(rotated.size())
+        canvas = QPixmap(self._prop_src.size())
+        canvas.fill(Qt.transparent)
+        p = QPainter(canvas)
+        p.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        hx = self._prop_src.width() * PROP_HUB[0]
+        hy = self._prop_src.height() * PROP_HUB[1]
+        p.translate(hx, hy)
+        p.rotate(self._prop_angle)
+        p.translate(-hx, -hy)
+        p.drawPixmap(0, 0, self._prop_src)
+        p.end()
+        self._prop.setPixmap(canvas)
 
-    def _load(self, name: str, height: int) -> QPixmap:
+    def _load(self, name: str, size: int) -> QPixmap:
         path = assets_dir() / name
         pix = QPixmap(str(path))
         if pix.isNull():
-            return QPixmap(height, height)  # transparent placeholder
-        return pix.scaledToHeight(height, Qt.SmoothTransformation)
+            placeholder = QPixmap(size, size)
+            placeholder.fill(Qt.transparent)  # transparent placeholder
+            return placeholder
+        return pix.scaledToHeight(size, Qt.SmoothTransformation)
