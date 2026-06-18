@@ -91,9 +91,11 @@ def play_flight(duration_ms: int) -> None:
 
     from PySide6.QtCore import QTimer
 
-    # Quack as the plane passes the middle of the screen.
+    # A double "quack-quack" as the plane passes the middle of the screen.
     if _quack is not None:
-        QTimer.singleShot(max(0, duration_ms // 2), _safe_quack)
+        mid = max(0, duration_ms // 2)
+        QTimer.singleShot(mid, _safe_quack)
+        QTimer.singleShot(mid + 380, _safe_quack)
     # Cut the engine when the crossing ends.
     QTimer.singleShot(max(0, duration_ms), _stop_engine)
 

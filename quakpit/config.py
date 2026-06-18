@@ -22,7 +22,7 @@ DEFAULT_PREFS: dict[str, Any] = {
     "launch_at_login": False,
     "target_display": "cursor",  # "cursor" | "primary"
     "fly_at_start": False,
-    "duration_ms": 9000,
+    "duration_ms": 11000,
 }
 
 

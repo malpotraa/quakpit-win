@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import (
     QEasingCurve,
-    QPoint,
     Qt,
     QTimer,
     QVariantAnimation,
@@ -25,7 +24,6 @@ from PySide6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
-    QPolygon,
     QTransform,
 )
 from PySide6.QtWidgets import QLabel, QWidget
@@ -33,31 +31,31 @@ from PySide6.QtWidgets import QLabel, QWidget
 from . import audio, config, winutils
 from .config import assets_dir
 
-PLANE_H = 96  # rendered plane height in px
-HEAD_H = 58
-PROP_H = 70
-BANNER_H = 52
+PLANE_H = 116  # rendered plane height in px
+HEAD_H = 70
+PROP_H = 84
+BANNER_H = 62
 GAP = 18  # space between the towed banner and the tail
 BANNER_FONTS = "Segoe Print, Comic Sans MS, Patrick Hand, Comic Sans, cursive"
 
 
 class Banner(QWidget):
-    """A rounded, two-tone striped pennant with the reminder text."""
+    """A rounded, solid-colour pennant with the reminder text."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self._text = ""
         self._font = QFont()
         self._font.setFamilies([f.strip() for f in BANNER_FONTS.split(",")])
-        self._font.setPixelSize(24)
+        self._font.setPixelSize(28)
         self._font.setBold(True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
     def set_text(self, text: str) -> None:
         self._text = text
         fm = QFontMetrics(self._font)
-        width = fm.horizontalAdvance(text) + 44
-        self.setFixedSize(max(120, width), BANNER_H)
+        width = fm.horizontalAdvance(text) + 52
+        self.setFixedSize(max(140, width), BANNER_H)
         self.update()
 
     def paintEvent(self, _event) -> None:  # noqa: N802 (Qt naming)
@@ -65,31 +63,13 @@ class Banner(QWidget):
         p.setRenderHint(QPainter.Antialiasing, True)
         rect = self.rect().adjusted(1, 1, -1, -1)
 
+        # Solid, high-visibility fill (brand yellow) with a dark outline.
         path = QPainterPath()
         path.addRoundedRect(rect, 12, 12)
         p.setClipPath(path)
-
-        # Diagonal stripes (warm "warning banner" yellow + cream).
-        stripe_a = QColor("#ffd34d")
-        stripe_b = QColor("#fff3c4")
-        p.fillRect(rect, stripe_b)
-        p.setPen(Qt.NoPen)
-        p.setBrush(stripe_a)
-        step = 26
-        x = -rect.height()
-        while x < rect.width():
-            poly = QPolygon(
-                [
-                    QPoint(int(x), rect.bottom()),
-                    QPoint(int(x + rect.height()), rect.top()),
-                    QPoint(int(x + rect.height() + step / 2), rect.top()),
-                    QPoint(int(x + step / 2), rect.bottom()),
-                ]
-            )
-            p.drawPolygon(poly)
-            x += step * 2
-
+        p.fillRect(rect, QColor("#ffd34d"))
         p.setClipping(False)
+
         p.setPen(QPen(QColor("#1a1a1a"), 2))
         p.setBrush(Qt.NoBrush)
         p.drawRoundedRect(rect, 12, 12)
