@@ -56,5 +56,10 @@ Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: st
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
+[UninstallRun]
+; Revoke + erase the Google connection (Windows Credential Manager + server-side)
+; before files are removed, so uninstalling truly signs the user out.
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--purge-credentials"; Flags: runhidden waituntilterminated; RunOnceId: "PurgeCreds"
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{userappdata}\{#MyAppName}"

@@ -28,6 +28,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
 ]
 TOKEN_URL = "https://oauth2.googleapis.com/token"
+REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 
@@ -164,11 +165,30 @@ def connect() -> None:
 
 def disconnect() -> None:
     global _access_token, _access_expiry, _refresh_token, _user_email
+    # Revoke server-side first (best effort) so the grant is truly gone, not just
+    # forgotten locally. Revoking the refresh token invalidates the whole grant.
+    token = _refresh_token or storage.load_secret(_REFRESH_KEY) or _access_token
+    if token:
+        _revoke_token(token)
     _access_token = None
     _access_expiry = 0.0
     _refresh_token = None
     _user_email = None
     storage.clear_secret(_REFRESH_KEY)
+
+
+def purge() -> None:
+    """Revoke and erase all stored Google state.
+
+    Run headless by the uninstaller via ``Quakpit.exe --purge-credentials`` so
+    removing the app truly signs you out — both locally (Windows Credential
+    Manager) and server-side at Google — instead of leaving a live token behind.
+    """
+    token = storage.load_secret(_REFRESH_KEY)
+    if token:
+        _revoke_token(token)
+    storage.clear_secret(_REFRESH_KEY)
+    storage.clear_secret(_CREDS_KEY)
 
 
 def forget_persisted() -> None:
@@ -230,6 +250,19 @@ def list_upcoming(within_minutes: int = 60) -> list[UpcomingEvent]:
 
 
 # --- internals ---------------------------------------------------------------
+def _revoke_token(token: str) -> None:
+    """Tell Google to invalidate this token/grant. Best effort."""
+    try:
+        requests.post(
+            REVOKE_URL,
+            data={"token": token},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10,
+        )
+    except Exception:
+        pass  # offline, or the token is already invalid — nothing more to do
+
+
 def _refresh_access() -> None:
     global _access_token, _access_expiry
     creds = _load_creds()
