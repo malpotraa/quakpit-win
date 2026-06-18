@@ -64,6 +64,17 @@ class SettingsWindow(QWidget):
         self._cal_status = _muted("Not connected.")
         root.addWidget(self._cal_status)
 
+        # Shown only when sign-in is preconfigured (org-distributed build).
+        self._managed_note = _muted(
+            "Google sign-in is set up by your organization — just click Connect."
+        )
+        root.addWidget(self._managed_note)
+
+        # The credential-entry box is hidden when credentials are already
+        # configured (bundled file / env). Self-setup users fill it in.
+        self._creds_entry = QWidget()
+        entry = QVBoxLayout(self._creds_entry)
+        entry.setContentsMargins(0, 0, 0, 0)
         creds_row = QFormLayout()
         self._client_id = QLineEdit()
         self._client_id.setPlaceholderText("OAuth Client ID")
@@ -72,20 +83,25 @@ class SettingsWindow(QWidget):
         self._client_secret.setEchoMode(QLineEdit.Password)
         creds_row.addRow("Client ID", self._client_id)
         creds_row.addRow("Client secret", self._client_secret)
-        root.addLayout(creds_row)
-        root.addWidget(
+        entry.addLayout(creds_row)
+        entry.addWidget(
             _muted("Use your own Google OAuth desktop client — see the README. "
                    "Leave blank if you placed oauth-credentials.json next to the app.")
         )
-
-        btn_row = QHBoxLayout()
+        save_row = QHBoxLayout()
         self._save_creds_btn = QPushButton("Save credentials")
         self._save_creds_btn.clicked.connect(self._save_creds)
+        save_row.addWidget(self._save_creds_btn)
+        save_row.addStretch(1)
+        entry.addLayout(save_row)
+        root.addWidget(self._creds_entry)
+
+        # Connect / Disconnect are always available.
+        btn_row = QHBoxLayout()
         self._connect_btn = QPushButton("Connect")
         self._connect_btn.clicked.connect(self._connect)
         self._disconnect_btn = QPushButton("Disconnect")
         self._disconnect_btn.clicked.connect(self._disconnect)
-        btn_row.addWidget(self._save_creds_btn)
         btn_row.addWidget(self._connect_btn)
         btn_row.addWidget(self._disconnect_btn)
         btn_row.addStretch(1)
@@ -148,6 +164,13 @@ class SettingsWindow(QWidget):
     # --- status ---
     def refresh_status(self) -> None:
         st = google_calendar.status()
+
+        # Managed mode: credentials already configured (bundled by the org or
+        # via env) — hide the entry box and show a short note instead.
+        configured = bool(st["configured"])
+        self._creds_entry.setVisible(not configured)
+        self._managed_note.setVisible(configured and not st["connected"])
+
         if st["connected"]:
             who = st["email"] or "your account"
             self._cal_status.setText(f"Connected as {who}.")

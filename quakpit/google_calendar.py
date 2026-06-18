@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -64,7 +66,14 @@ def _load_creds() -> dict[str, str] | None:
     if env_id and env_secret:
         return {"clientId": env_id, "clientSecret": env_secret}
 
-    for candidate in (config.app_dir(), config.data_dir()):
+    # Org-distributed builds ship oauth-credentials.json with the installer.
+    # Search: next to the .exe (installer drop) → user data dir → PyInstaller
+    # bundle (sys._MEIPASS, if the file was added to the build instead).
+    candidates = [config.app_dir(), config.data_dir()]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass))
+    for candidate in candidates:
         path = candidate / "oauth-credentials.json"
         try:
             if path.exists():

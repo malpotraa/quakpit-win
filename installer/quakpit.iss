@@ -38,6 +38,15 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 ; The whole PyInstaller one-folder build.
 Source: "..\dist\Quakpit\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+; Org-distributed build: if you placed your Desktop OAuth client's
+; oauth-credentials.json in the project root, ship it next to the .exe so
+; colleagues never have to enter any keys — they just click Connect. The file
+; is gitignored; if it's absent (e.g. an open-source build) this is skipped and
+; users configure their own client in Settings.
+#if FileExists("..\oauth-credentials.json")
+Source: "..\oauth-credentials.json"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon

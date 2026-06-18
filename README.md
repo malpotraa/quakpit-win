@@ -74,6 +74,28 @@ The installer is **per-user** (no admin rights), offers an **autostart** checkbo
 adds a Start-menu (and optional desktop) shortcut. The app itself can also toggle
 autostart from **Settings → “Launch Quakpit at startup”** (per-user `Run` registry key).
 
+## Deploying to an organization (bundled sign-in)
+
+For an internal rollout you ship **one** OAuth client so colleagues never enter keys
+— they install, click **Connect**, approve, done. See `INSTALL.md` for the end-user
+one-pager.
+
+1. In Google Cloud Console, in your project, create an **OAuth client ID → Desktop
+   app**. Confirm the consent screen lists the `calendar.events.readonly` scope.
+   - Users not all on one Workspace domain → consent screen stays **External**.
+     Set publishing status to **In production** (even unverified) so refresh tokens
+     don’t expire every 7 days; users click through a one-time “unverified app”
+     notice. Verification (the lighter, sensitive-scope review) removes that notice
+     and the ~100-user cap when you scale.
+2. Put the client’s id/secret in **`oauth-credentials.json`** in the project root
+   (copy `oauth-credentials.example.json`). This file is **gitignored — never commit
+   it.**
+3. `python build.py`. The installer auto-detects that file and ships it next to the
+   `.exe`; the app finds it on first launch, hides the credential fields, and shows
+   “Connect.” A Desktop client’s secret is non-confidential by design, so bundling it
+   is expected.
+4. Share `dist\installer\Quakpit-Setup.exe` (per-user, no admin) and `INSTALL.md`.
+
 ## How it works
 
 | Concern | Implementation |
