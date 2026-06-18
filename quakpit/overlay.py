@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import (
     QEasingCurve,
+    QRect,
     Qt,
     QTimer,
     QVariantAnimation,
@@ -118,17 +119,17 @@ class Overlay(QWidget):
         self._anim.valueChanged.connect(self._on_step)
         self._anim.finished.connect(self._on_finished)
 
-        self._topmost_timer = QTimer(self)
-        self._topmost_timer.timeout.connect(self._reassert_topmost)
-
-        self._show_persistent()
+        self._prepare_window()
 
     # --- public API ---
     def fly(self, message: str, duration_ms: int, sound: bool) -> None:
         screen = self._target_screen()
-        geo = screen.geometry()
+        geo = self._flight_geometry(screen)
         self.setGeometry(geo)
-        self._reassert_topmost()
+        # Show only for the duration of a flight (Option 2): a persistent
+        # full-screen topmost window makes Windows demote the taskbar.
+        self.show()
+        self._apply_native_styles()
 
         self._banner.set_text(message)
         self._layout_rig()
@@ -158,21 +159,24 @@ class Overlay(QWidget):
                 pass
 
     # --- internals ---
-    def _show_persistent(self) -> None:
-        screen = QGuiApplication.primaryScreen()
-        self.setGeometry(screen.geometry())
+    def _prepare_window(self) -> None:
+        # Realize the native window (hidden) so click-through styles can be set,
+        # but DON'T show it. We only show during a flight — see fly()/_on_finished.
+        self.setGeometry(self._flight_geometry(QGuiApplication.primaryScreen()))
         self._rig.move(-9999, -9999)
-        self.show()
+        self.winId()  # force native handle creation
         self._apply_native_styles()
-        # Re-assert topmost a few times after show (mirrors the macOS dock fix).
-        for delay in (200, 800, 2000):
-            QTimer.singleShot(delay, self._reassert_topmost)
+
+    def _flight_geometry(self, screen) -> QRect:
+        # One pixel shorter than the monitor (Option 1): an *exact* monitor-sized
+        # topmost window makes the Windows shell treat us as a fullscreen app and
+        # demote the taskbar. The 1px gap is invisible (overlay is transparent and
+        # the duck flies near the top).
+        g = screen.geometry()
+        return QRect(g.x(), g.y(), g.width(), max(1, g.height() - 1))
 
     def _apply_native_styles(self) -> None:
         winutils.make_overlay(int(self.winId()))
-        winutils.assert_topmost(int(self.winId()))
-
-    def _reassert_topmost(self) -> None:
         winutils.assert_topmost(int(self.winId()))
 
     def _target_screen(self):
@@ -207,6 +211,7 @@ class Overlay(QWidget):
     def _on_finished(self) -> None:
         self._prop_timer.stop()
         self._rig.move(-9999, -9999)  # rest off-screen so nothing lingers
+        self.hide()  # Option 2: don't leave a full-screen topmost window around
 
     def _spin(self) -> None:
         self._prop_angle = (self._prop_angle + 42) % 360
