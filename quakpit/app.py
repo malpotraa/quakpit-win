@@ -122,6 +122,12 @@ def _take_single_instance_lock(qapp: QApplication) -> bool:
 
 
 def main() -> int:
+    # Headless uninstall hook: revoke + erase the Google connection, no GUI.
+    # The installer runs `Quakpit.exe --purge-credentials` on uninstall.
+    if "--purge-credentials" in sys.argv:
+        google_calendar.purge()
+        return 0
+
     qapp = QApplication(sys.argv)
 
     if not _take_single_instance_lock(qapp):

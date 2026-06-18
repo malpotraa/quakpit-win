@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import (
     QEasingCurve,
-    QPoint,
+    QRect,
     Qt,
     QTimer,
     QVariantAnimation,
@@ -25,7 +25,6 @@ from PySide6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
-    QPolygon,
     QTransform,
 )
 from PySide6.QtWidgets import QLabel, QWidget
@@ -33,31 +32,31 @@ from PySide6.QtWidgets import QLabel, QWidget
 from . import audio, config, winutils
 from .config import assets_dir
 
-PLANE_H = 96  # rendered plane height in px
-HEAD_H = 58
-PROP_H = 70
-BANNER_H = 52
+PLANE_H = 116  # rendered plane height in px
+HEAD_H = 70
+PROP_H = 84
+BANNER_H = 62
 GAP = 18  # space between the towed banner and the tail
 BANNER_FONTS = "Segoe Print, Comic Sans MS, Patrick Hand, Comic Sans, cursive"
 
 
 class Banner(QWidget):
-    """A rounded, two-tone striped pennant with the reminder text."""
+    """A rounded, solid-colour pennant with the reminder text."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self._text = ""
         self._font = QFont()
         self._font.setFamilies([f.strip() for f in BANNER_FONTS.split(",")])
-        self._font.setPixelSize(24)
+        self._font.setPixelSize(28)
         self._font.setBold(True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
     def set_text(self, text: str) -> None:
         self._text = text
         fm = QFontMetrics(self._font)
-        width = fm.horizontalAdvance(text) + 44
-        self.setFixedSize(max(120, width), BANNER_H)
+        width = fm.horizontalAdvance(text) + 52
+        self.setFixedSize(max(140, width), BANNER_H)
         self.update()
 
     def paintEvent(self, _event) -> None:  # noqa: N802 (Qt naming)
@@ -65,31 +64,13 @@ class Banner(QWidget):
         p.setRenderHint(QPainter.Antialiasing, True)
         rect = self.rect().adjusted(1, 1, -1, -1)
 
+        # Solid, high-visibility fill (brand yellow) with a dark outline.
         path = QPainterPath()
         path.addRoundedRect(rect, 12, 12)
         p.setClipPath(path)
-
-        # Diagonal stripes (warm "warning banner" yellow + cream).
-        stripe_a = QColor("#ffd34d")
-        stripe_b = QColor("#fff3c4")
-        p.fillRect(rect, stripe_b)
-        p.setPen(Qt.NoPen)
-        p.setBrush(stripe_a)
-        step = 26
-        x = -rect.height()
-        while x < rect.width():
-            poly = QPolygon(
-                [
-                    QPoint(int(x), rect.bottom()),
-                    QPoint(int(x + rect.height()), rect.top()),
-                    QPoint(int(x + rect.height() + step / 2), rect.top()),
-                    QPoint(int(x + step / 2), rect.bottom()),
-                ]
-            )
-            p.drawPolygon(poly)
-            x += step * 2
-
+        p.fillRect(rect, QColor("#ffd34d"))
         p.setClipping(False)
+
         p.setPen(QPen(QColor("#1a1a1a"), 2))
         p.setBrush(Qt.NoBrush)
         p.drawRoundedRect(rect, 12, 12)
@@ -138,17 +119,17 @@ class Overlay(QWidget):
         self._anim.valueChanged.connect(self._on_step)
         self._anim.finished.connect(self._on_finished)
 
-        self._topmost_timer = QTimer(self)
-        self._topmost_timer.timeout.connect(self._reassert_topmost)
-
-        self._show_persistent()
+        self._prepare_window()
 
     # --- public API ---
     def fly(self, message: str, duration_ms: int, sound: bool) -> None:
         screen = self._target_screen()
-        geo = screen.geometry()
+        geo = self._flight_geometry(screen)
         self.setGeometry(geo)
-        self._reassert_topmost()
+        # Show only for the duration of a flight (Option 2): a persistent
+        # full-screen topmost window makes Windows demote the taskbar.
+        self.show()
+        self._apply_native_styles()
 
         self._banner.set_text(message)
         self._layout_rig()
@@ -178,21 +159,24 @@ class Overlay(QWidget):
                 pass
 
     # --- internals ---
-    def _show_persistent(self) -> None:
-        screen = QGuiApplication.primaryScreen()
-        self.setGeometry(screen.geometry())
+    def _prepare_window(self) -> None:
+        # Realize the native window (hidden) so click-through styles can be set,
+        # but DON'T show it. We only show during a flight — see fly()/_on_finished.
+        self.setGeometry(self._flight_geometry(QGuiApplication.primaryScreen()))
         self._rig.move(-9999, -9999)
-        self.show()
+        self.winId()  # force native handle creation
         self._apply_native_styles()
-        # Re-assert topmost a few times after show (mirrors the macOS dock fix).
-        for delay in (200, 800, 2000):
-            QTimer.singleShot(delay, self._reassert_topmost)
+
+    def _flight_geometry(self, screen) -> QRect:
+        # One pixel shorter than the monitor (Option 1): an *exact* monitor-sized
+        # topmost window makes the Windows shell treat us as a fullscreen app and
+        # demote the taskbar. The 1px gap is invisible (overlay is transparent and
+        # the duck flies near the top).
+        g = screen.geometry()
+        return QRect(g.x(), g.y(), g.width(), max(1, g.height() - 1))
 
     def _apply_native_styles(self) -> None:
         winutils.make_overlay(int(self.winId()))
-        winutils.assert_topmost(int(self.winId()))
-
-    def _reassert_topmost(self) -> None:
         winutils.assert_topmost(int(self.winId()))
 
     def _target_screen(self):
@@ -227,6 +211,7 @@ class Overlay(QWidget):
     def _on_finished(self) -> None:
         self._prop_timer.stop()
         self._rig.move(-9999, -9999)  # rest off-screen so nothing lingers
+        self.hide()  # Option 2: don't leave a full-screen topmost window around
 
     def _spin(self) -> None:
         self._prop_angle = (self._prop_angle + 42) % 360

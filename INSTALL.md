@@ -50,6 +50,17 @@ You don’t need to enter any keys or IDs — sign-in is already set up for you.
 - **Multiple monitors:** by default the duck flies on whichever screen your mouse is
   on. Change this under **Show on** in settings.
 
+## Signing out / removing it
+
+- **Sign out:** open Settings and click **Disconnect** — this revokes Quakpit’s
+  access at Google, not just on your laptop.
+- **Uninstall:** removing Quakpit (Windows *Add or remove programs*) now also
+  **revokes and erases your Google connection automatically** — nothing is left
+  behind. (Older builds left the sign-in in the Windows Credential Manager, so a
+  reinstall reconnected silently; this build cleans up on uninstall.)
+- You can always review or revoke access yourself at
+  **myaccount.google.com → Security → Your connections to third-party apps**.
+
 ## Troubleshooting
 
 | Problem | Fix |
