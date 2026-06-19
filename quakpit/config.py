@@ -23,6 +23,8 @@ DEFAULT_PREFS: dict[str, Any] = {
     "target_display": "cursor",  # "cursor" | "primary"
     "fly_at_start": False,
     "duration_ms": 11000,
+    "character": "duck",  # "duck" | "goat" | "custom"
+    "sound_pack": "quack",  # see audio.SOUNDS
 }
 
 
@@ -52,6 +54,11 @@ def assets_dir() -> Path:
 
 def _prefs_path() -> Path:
     return data_dir() / "prefs.json"
+
+
+def custom_character_path() -> Path:
+    """The user's uploaded pilot image, kept locally (normalised to PNG)."""
+    return data_dir() / "custom-character.png"
 
 
 _cache: dict[str, Any] | None = None
