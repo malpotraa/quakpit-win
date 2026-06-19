@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -19,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import autostart, config, google_calendar
+from . import audio, autostart, config, google_calendar
 from .config import assets_dir
 
 
@@ -149,6 +150,42 @@ class SettingsWindow(QWidget):
         for w in (self._sound, self._fly_at_start, self._stay, self._launch):
             root.addWidget(w)
 
+        # --- Character & sound ---
+        root.addWidget(_section("Character & sound"))
+
+        self._character = QComboBox()
+        self._character.currentIndexChanged.connect(self._on_character_changed)
+        char_form = QFormLayout()
+        char_form.addRow("Character", self._character)
+        root.addLayout(char_form)
+
+        char_btns = QHBoxLayout()
+        self._upload_btn = QPushButton("Upload image…")
+        self._upload_btn.clicked.connect(self._on_upload)
+        self._remove_custom_btn = QPushButton("Remove")
+        self._remove_custom_btn.clicked.connect(self._on_remove_custom)
+        char_btns.addWidget(self._upload_btn)
+        char_btns.addWidget(self._remove_custom_btn)
+        char_btns.addStretch(1)
+        root.addLayout(char_btns)
+        root.addWidget(_muted("Upload your own pilot image — it rides in the cockpit, circle-cropped, and stays on your machine."))
+
+        self._sound_combo = QComboBox()
+        self._sound_combo.currentIndexChanged.connect(self._on_sound_changed)
+        self._preview_btn = QPushButton("▶ Preview")
+        self._preview_btn.clicked.connect(lambda: audio.preview(self._sound_combo.currentData()))
+        snd_widget = QWidget()
+        snd_h = QHBoxLayout(snd_widget)
+        snd_h.setContentsMargins(0, 0, 0, 0)
+        snd_h.addWidget(self._sound_combo, 1)
+        snd_h.addWidget(self._preview_btn)
+        snd_form = QFormLayout()
+        snd_form.addRow("Sound", snd_widget)
+        root.addLayout(snd_form)
+
+        self._reload_characters()
+        self._reload_sounds()
+
         # --- Test ---
         test_row = QHBoxLayout()
         self._test_btn = QPushButton("Send a test flight \U0001f6eb")
@@ -238,6 +275,76 @@ class SettingsWindow(QWidget):
     def _on_test(self) -> None:
         if callable(self.on_test_flight):
             self.on_test_flight()
+
+    # --- character & sound ---
+    def _reload_characters(self) -> None:
+        self._character.blockSignals(True)
+        self._character.clear()
+        self._character.addItem("Duck", "duck")
+        if (assets_dir() / "characters" / "goat.png").exists():
+            self._character.addItem("Goat", "goat")
+        has_custom = config.custom_character_path().exists()
+        self._character.addItem("Custom image" if has_custom else "Custom image…", "custom")
+        cur = config.get_prefs().get("character", "duck")
+        idx = self._character.findData(cur)
+        self._character.setCurrentIndex(idx if idx >= 0 else 0)
+        self._character.blockSignals(False)
+        self._remove_custom_btn.setEnabled(has_custom)
+
+    def _reload_sounds(self) -> None:
+        self._sound_combo.blockSignals(True)
+        self._sound_combo.clear()
+        for sid, name in audio.available_sounds():
+            self._sound_combo.addItem(name, sid)
+        cur = config.get_prefs().get("sound_pack", "quack")
+        idx = self._sound_combo.findData(cur)
+        self._sound_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._sound_combo.blockSignals(False)
+
+    def _on_character_changed(self) -> None:
+        cid = self._character.currentData()
+        if cid == "custom" and not config.custom_character_path().exists():
+            self._on_upload()  # need an image first
+            return
+        config.set_prefs({"character": cid})
+        # Match the sound to the animal (still overridable).
+        if cid == "goat":
+            gi = self._sound_combo.findData("goat")
+            if gi >= 0:
+                self._sound_combo.setCurrentIndex(gi)
+
+    def _on_sound_changed(self) -> None:
+        sid = self._sound_combo.currentData()
+        if sid:
+            config.set_prefs({"sound_pack": sid})
+
+    def _on_upload(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose a pilot image", "",
+            "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"
+        )
+        if not path:
+            self._reload_characters()  # revert if the dialog was cancelled
+            return
+        pix = QPixmap(path)
+        if pix.isNull():
+            QMessageBox.warning(self, "Quakpit", "Couldn't read that image.")
+            self._reload_characters()
+            return
+        pix.save(str(config.custom_character_path()), "PNG")
+        config.set_prefs({"character": "custom"})
+        self._reload_characters()
+
+    def _on_remove_custom(self) -> None:
+        path = config.custom_character_path()
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception:
+            pass
+        if config.get_prefs().get("character") == "custom":
+            config.set_prefs({"character": "duck"})
+        self._reload_characters()
 
 
 # --- small UI helpers --------------------------------------------------------

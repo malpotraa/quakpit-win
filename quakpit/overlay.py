@@ -38,6 +38,10 @@ from .config import assets_dir
 AIRCRAFT_S = 150
 # Propeller hub within that shared canvas (from the original art), as fractions.
 PROP_HUB = (0.945, 0.562)
+# Cockpit "porthole": where a goat / custom pilot image rides, as fractions of
+# the canvas (centre + diameter). Tuned by screenshot against the plane art.
+PORTHOLE_C = (0.40, 0.40)
+PORTHOLE_D = 0.30
 BANNER_H = 62
 GAP = 18  # space between the towed banner and the tail
 BANNER_FONTS = "Segoe Print, Comic Sans MS, Patrick Hand, Comic Sans, cursive"
@@ -114,11 +118,15 @@ class Overlay(QWidget):
         self._plane.setPixmap(self._plane_pix)
         self._head.setPixmap(self._head_pix)
         self._prop.setPixmap(self._prop_src)
-        for lbl in (self._plane, self._head, self._prop):
+        # Cockpit pilot for goat / custom characters (shown instead of the duck).
+        self._porthole = QLabel(self._aircraft)
+
+        for lbl in (self._plane, self._head, self._porthole, self._prop):
             lbl.setGeometry(0, 0, AIRCRAFT_S, AIRCRAFT_S)  # same size, same origin
             lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._porthole.hide()
         self._plane.lower()
-        self._prop.raise_()  # z-order: plane < head < prop
+        self._prop.raise_()  # z-order: plane < head/porthole < prop
 
         self._prop_angle = 0
         self._prop_timer = QTimer(self)
@@ -140,7 +148,9 @@ class Overlay(QWidget):
         self.show()
         self._apply_native_styles()
 
+        prefs = config.get_prefs()
         self._banner.set_text(message)
+        self._apply_character(prefs.get("character", "duck"))
         self._layout_rig()
 
         rig_w = self._rig.width()
@@ -163,7 +173,7 @@ class Overlay(QWidget):
 
         if sound:
             try:
-                audio.play_flight(duration_ms)
+                audio.play_flight(duration_ms, prefs.get("sound_pack", "quack"))
             except Exception:
                 pass
 
@@ -204,6 +214,50 @@ class Overlay(QWidget):
         cy = rig_h // 2
         self._banner.move(0, cy - bh // 2)
         self._aircraft.move(bw + GAP, cy - s // 2)
+
+    def _apply_character(self, character: str) -> None:
+        """Duck = integrated art; goat/custom = an image in the cockpit porthole."""
+        porthole = None
+        if character == "goat":
+            porthole = self._compose_porthole(assets_dir() / "characters" / "goat.png")
+        elif character == "custom":
+            porthole = self._compose_porthole(config.custom_character_path())
+
+        if porthole is not None:
+            self._porthole.setPixmap(porthole)
+            self._porthole.show()
+            self._head.hide()
+        else:
+            self._porthole.hide()
+            self._head.show()  # fall back to the duck
+
+    def _compose_porthole(self, image_path) -> QPixmap | None:
+        """Draw any image circle-cropped into the cockpit, on the shared canvas."""
+        src = QPixmap(str(image_path))
+        if src.isNull():
+            return None
+        s = AIRCRAFT_S
+        d = int(PORTHOLE_D * s)
+        cx, cy = int(PORTHOLE_C[0] * s), int(PORTHOLE_C[1] * s)
+        # Scale to *cover* the circle so the image fills it, then centre + clip.
+        scaled = src.scaled(d, d, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+
+        canvas = QPixmap(s, s)
+        canvas.fill(Qt.transparent)
+        p = QPainter(canvas)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        clip = QPainterPath()
+        clip.addEllipse(cx - d / 2, cy - d / 2, d, d)
+        p.setClipPath(clip)
+        p.drawPixmap(cx - scaled.width() // 2, cy - scaled.height() // 2, scaled)
+        p.setClipping(False)
+        # A thin ring so it reads as a window.
+        p.setPen(QPen(QColor("#1a1a1a"), 3))
+        p.setBrush(Qt.NoBrush)
+        p.drawEllipse(cx - d // 2, cy - d // 2, d, d)
+        p.end()
+        return canvas
 
     def _on_step(self, value: int) -> None:
         self._rig.move(int(value), self._fly_y)
