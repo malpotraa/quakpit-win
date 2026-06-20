@@ -34,7 +34,7 @@ You don’t need to enter any keys or IDs — sign-in is already set up for you.
 
 ## 3. Try it
 
-- Click **Send a test flight 🛫** (or press **Ctrl + Shift + D**) — the duck should
+- Click **Send a test flight 🛫** — the duck should
   fly across your screen, on top of whatever you’re doing.
 - Set how early you want the heads-up under **Lead time** (default: 5 minutes
   before).

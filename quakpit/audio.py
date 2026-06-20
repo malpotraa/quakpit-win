@@ -105,9 +105,6 @@ def _synth_pew() -> Path:
     return p
 
 
-_SYNTHS = {"pew": _synth_pew}
-
-
 # --- effects -----------------------------------------------------------------
 def _effect(path: Path, volume: float, loops: int = 1) -> QSoundEffect:
     fx = QSoundEffect()
@@ -125,7 +122,7 @@ def _source_path(meta: dict) -> Path | None:
     sid = meta["synth"]
     if sid not in _synth_paths:
         try:
-            _synth_paths[sid] = _SYNTHS[sid]()
+            _synth_paths[sid] = _synth_pew()  # only one synth sound today
         except Exception:
             return None
     return _synth_paths[sid]

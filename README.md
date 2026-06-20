@@ -25,8 +25,8 @@ pip install -r requirements.txt
 python run.py
 ```
 
-The app opens its settings window and drops an icon in the system tray. Press
-**Ctrl+Shift+D** any time to send a test flight.
+The app opens its settings window and drops an icon in the system tray. Use the
+tray menu's **Send a test flight** any time.
 
 ## Connect Google Calendar (one-time)
 
@@ -107,7 +107,6 @@ one-pager.
 | Secrets | `keyring` → Windows Credential Manager (`storage.py`) |
 | Auto-start | per-user `Run` key, toggled in Settings or by the installer (`autostart.py`) |
 | Sound | synthesized propeller drone (stdlib `wave`) + `quack.wav`, via `QSoundEffect` (`audio.py`) |
-| Global hotkey | `RegisterHotKey` + a Qt native event filter (`tray.py`) |
 
 ## Project layout
 
@@ -122,7 +121,7 @@ quakpit/
   google_calendar.py    OAuth + event fetching
   scheduler.py          poll / tick / fire
   settings_window.py    the control window
-  tray.py               tray icon + Ctrl+Shift+D hotkey
+  tray.py               tray icon
   audio.py              engine drone + quack
   storage.py            credential-vault secrets
   config.py             prefs + paths

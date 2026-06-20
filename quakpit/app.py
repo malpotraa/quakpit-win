@@ -14,7 +14,7 @@ from .config import assets_dir
 from .overlay import Overlay
 from .scheduler import Scheduler
 from .settings_window import SettingsWindow
-from .tray import HotkeyFilter, build_tray
+from .tray import build_tray
 
 _LOCK_NAME = "QuakpitSingleInstance"
 
@@ -43,11 +43,6 @@ class QuakpitApp:
             on_settings=self.open_settings,
             on_quit=self.quit,
         )
-
-        self.hotkey = HotkeyFilter()
-        self.qapp.installNativeEventFilter(self.hotkey)
-        self.hotkey.fired.connect(self.test_flight)
-        self.hotkey.register()
 
         # Honour saved launch-at-login (best effort).
         try:
@@ -81,12 +76,11 @@ class QuakpitApp:
         )
 
     def test_flight(self) -> None:
-        prefs = config.get_prefs()
         self._fly(
             {
                 "message": "Call with Jack in 5 minutes",
-                "duration_ms": int(prefs.get("duration_ms", 9000)),
-                "sound": prefs["sound_enabled"],
+                "duration_ms": config.FLIGHT_DURATION_MS,
+                "sound": config.get_prefs()["sound_enabled"],
             }
         )
 
@@ -97,7 +91,6 @@ class QuakpitApp:
 
     def quit(self) -> None:
         self.scheduler.stop()
-        self.hotkey.unregister()
         self.tray.hide()
         self.qapp.quit()
 
