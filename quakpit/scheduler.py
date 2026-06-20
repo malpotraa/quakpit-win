@@ -64,7 +64,7 @@ class Scheduler(QObject):
         prefs = config.get_prefs()
         now = time.time() * 1000.0
         lead = prefs["lead_minutes"] * 60_000
-        duration = int(prefs.get("duration_ms", 9000))
+        duration = config.FLIGHT_DURATION_MS
 
         for ev in self._upcoming:
             # 1) The lead-time reminder ("Call with Jack in 5 minutes").

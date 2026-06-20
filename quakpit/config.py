@@ -22,10 +22,12 @@ DEFAULT_PREFS: dict[str, Any] = {
     "launch_at_login": False,
     "target_display": "cursor",  # "cursor" | "primary"
     "fly_at_start": False,
-    "duration_ms": 11000,
     "character": "duck",  # "duck" | "goat" | "custom"
     "sound_pack": "quack",  # see audio.SOUNDS
 }
+
+# How long the rig takes to cross the screen. Not user-configurable.
+FLIGHT_DURATION_MS = 11000
 
 
 def data_dir() -> Path:
