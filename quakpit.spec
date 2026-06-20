@@ -6,7 +6,6 @@ Output: dist/Quakpit/Quakpit.exe  (one-folder build; the installer wraps it)
 """
 
 import os
-from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
 
@@ -14,12 +13,8 @@ datas = [
     ("quakpit/assets", "assets"),
 ]
 
-# google-auth-oauthlib / keyring pull in a few dynamically-imported backends.
-hiddenimports = (
-    collect_submodules("keyring.backends")
-    + collect_submodules("google_auth_oauthlib")
-    + ["win32timezone"]
-)
+# Pure-stdlib + PySide6 now; no third-party dynamic-import backends to coax.
+hiddenimports = []
 
 a = Analysis(
     ["run.py"],
