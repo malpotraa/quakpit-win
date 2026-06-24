@@ -102,9 +102,9 @@ one-pager.
 | --- | --- |
 | Always-on-top, click-through overlay | Frameless translucent `QWidget` + native `WS_EX_LAYERED \| WS_EX_TRANSPARENT \| WS_EX_TOOLWINDOW \| WS_EX_NOACTIVATE`, re-pinned `HWND_TOPMOST` each flight (`quakpit/winutils.py`, `overlay.py`) |
 | Above full-screen apps | Topmost tool window floats over **borderless** full-screen apps. **Exclusive** full-screen DirectX games take the whole GPU surface and can’t be reliably overlaid by any normal window — same limitation as the original. |
-| Google OAuth | `google-auth-oauthlib` loopback flow + `requests` for the Calendar API (`google_calendar.py`) |
+| Google OAuth | stdlib loopback + PKCE (`http.server`, `secrets`/`hashlib`) and `urllib` for all HTTP — no third-party deps (`google_calendar.py`) |
 | Scheduling | `QTimer` poll (60 s) + tick (15 s), fires at `start − lead`, dedup per event (`scheduler.py`) |
-| Secrets | `keyring` → Windows Credential Manager (`storage.py`) |
+| Secrets | Windows Credential Manager via `ctypes` (advapi32 `CredWriteW`/`CredReadW`) — DPAPI-encrypted, no deps (`storage.py`) |
 | Auto-start | per-user `Run` key, toggled in Settings or by the installer (`autostart.py`) |
 | Sound | synthesized propeller drone (stdlib `wave`) + `quack.wav`, via `QSoundEffect` (`audio.py`) |
 

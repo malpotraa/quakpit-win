@@ -1,24 +1,32 @@
-"""Google Calendar over OAuth 2.0 (desktop / installed-app flow).
+"""Google Calendar over OAuth 2.0 (desktop / installed-app flow), stdlib only.
 
-The sign-in is the standard loopback flow: we open the user's browser, spin up a
-``127.0.0.1`` callback server, exchange the code, and keep an in-memory access
-token. The refresh token is persisted only if the user opted into "Stay signed
-in" — stored in the OS credential vault, never on disk in the clear.
+The sign-in is the standard loopback + PKCE flow, hand-rolled on the standard
+library: open the user's browser, spin up a ``127.0.0.1`` callback server with
+``http.server``, exchange the code, and keep an in-memory access token. Every
+HTTP call uses ``urllib`` — no third-party dependencies. The refresh token is
+persisted only if the user opted into "Stay signed in", in the OS credential
+vault, never on disk in the clear.
 
 Events are held in memory only and never written anywhere.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import http.server
 import json
 import os
+import secrets
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-import requests
 
 from . import config, storage
 
@@ -27,6 +35,7 @@ SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
 ]
+AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
@@ -34,6 +43,13 @@ EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 
 _REFRESH_KEY = "google_refresh_token"
 _CREDS_KEY = "google_creds"  # the user's OAuth client id/secret (JSON)
+
+_SUCCESS_HTML = (
+    b"<!doctype html><html><body style='font-family:-apple-system,Segoe UI,sans-serif;"
+    b"text-align:center;padding-top:64px;background:#0b1b2b;color:#fff'>"
+    b"<h2>\xf0\x9f\xa6\x86 Quakpit is connected!</h2>"
+    b"<p>You can close this tab and return to the app.</p></body></html>"
+)
 
 
 @dataclass
@@ -48,6 +64,32 @@ _access_token: str | None = None
 _access_expiry: float = 0.0
 _refresh_token: str | None = None
 _user_email: str | None = None
+
+
+# --- tiny HTTP helpers (stdlib) ----------------------------------------------
+def _post_form(url: str, fields: dict[str, str]) -> dict[str, Any]:
+    """POST application/x-www-form-urlencoded; return parsed JSON. Raises on HTTP error."""
+    data = urllib.parse.urlencode(fields).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    with urllib.request.urlopen(req, timeout=20) as r:
+        body = r.read().decode("utf-8")
+    return json.loads(body) if body else {}
+
+
+def _get_json(url: str, token: str) -> dict[str, Any]:
+    """Authorized GET; return parsed JSON. Raises on HTTP error."""
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read().decode("utf-8") or "{}")
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
 # --- OAuth client credentials (id/secret) ------------------------------------
@@ -122,10 +164,10 @@ def init() -> None:
 
 
 def connect() -> None:
-    """Run the interactive OAuth flow. Blocking — call from a worker thread.
+    """Run the interactive OAuth loopback + PKCE flow. Blocking — call off the GUI thread.
 
-    Uses ``google-auth-oauthlib`` for the loopback flow so we get PKCE, a
-    randomly chosen port, and a proper refresh token (offline access).
+    Opens the browser, captures the redirect on a random localhost port, and
+    exchanges the code for tokens. PKCE (S256) protects the code in transit.
     """
     global _access_token, _access_expiry, _refresh_token
 
@@ -133,31 +175,71 @@ def connect() -> None:
     if not creds:
         raise RuntimeError("Google OAuth credentials are not configured (see README).")
 
-    from google_auth_oauthlib.flow import InstalledAppFlow
+    verifier = _b64url(secrets.token_bytes(32))
+    challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
 
-    client_config = {
-        "installed": {
+    captured: dict[str, str] = {}
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 (stdlib naming)
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            code = (qs.get("code") or [None])[0]
+            err = (qs.get("error") or [None])[0]
+            if code:
+                captured["code"] = code
+            elif err:
+                captured["error"] = err
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(_SUCCESS_HTML)
+
+        def log_message(self, *_args):  # silence the default stderr logging
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
+    server.timeout = 2  # so handle_request() returns periodically to re-check the deadline
+    redirect_uri = f"http://127.0.0.1:{server.server_address[1]}"
+
+    params = urllib.parse.urlencode(
+        {
+            "client_id": creds["clientId"],
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": " ".join(SCOPES),
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "access_type": "offline",
+            "prompt": "consent",
+        }
+    )
+    webbrowser.open(f"{AUTH_URL}?{params}")
+
+    deadline = time.monotonic() + 300
+    try:
+        while not captured and time.monotonic() < deadline:
+            server.handle_request()
+    finally:
+        server.server_close()
+
+    if "error" in captured or "code" not in captured:
+        raise RuntimeError(captured.get("error") or "Sign-in timed out or was cancelled.")
+
+    tok = _post_form(
+        TOKEN_URL,
+        {
+            "code": captured["code"],
             "client_id": creds["clientId"],
             "client_secret": creds["clientSecret"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": TOKEN_URL,
-            "redirect_uris": ["http://127.0.0.1"],
-        }
-    }
-    flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
-    google_creds = flow.run_local_server(
-        host="127.0.0.1",
-        port=0,
-        access_type="offline",
-        prompt="consent",
-        open_browser=True,
-        success_message="Quakpit is connected! You can close this tab and return to the app.",
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+            "code_verifier": verifier,
+        },
     )
-
-    _access_token = google_creds.token
-    _access_expiry = _expiry_to_ms(google_creds.expiry)
-    if google_creds.refresh_token:
-        _refresh_token = google_creds.refresh_token
+    _access_token = tok["access_token"]
+    _access_expiry = (time.time() + float(tok.get("expires_in", 3600))) * 1000.0
+    if tok.get("refresh_token"):
+        _refresh_token = tok["refresh_token"]
         if config.get_prefs()["stay_signed_in"]:
             storage.save_secret(_REFRESH_KEY, _refresh_token)
     _fetch_user_email()
@@ -217,15 +299,8 @@ def list_upcoming(within_minutes: int = 60) -> list[UpcomingEvent]:
         "orderBy": "startTime",
         "maxResults": "15",
     }
-    res = requests.get(
-        EVENTS_URL,
-        params=params,
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=20,
-    )
-    if not res.ok:
-        raise RuntimeError(f"Events fetch failed ({res.status_code})")
-    items = res.json().get("items", [])
+    data = _get_json(f"{EVENTS_URL}?{urllib.parse.urlencode(params)}", token)
+    items = data.get("items", [])
 
     events: list[UpcomingEvent] = []
     for it in items:
@@ -253,12 +328,7 @@ def list_upcoming(within_minutes: int = 60) -> list[UpcomingEvent]:
 def _revoke_token(token: str) -> None:
     """Tell Google to invalidate this token/grant. Best effort."""
     try:
-        requests.post(
-            REVOKE_URL,
-            data={"token": token},
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=10,
-        )
+        _post_form(REVOKE_URL, {"token": token})
     except Exception:
         pass  # offline, or the token is already invalid — nothing more to do
 
@@ -268,19 +338,15 @@ def _refresh_access() -> None:
     creds = _load_creds()
     if not creds or not _refresh_token:
         raise RuntimeError("Cannot refresh: not connected")
-    res = requests.post(
+    j = _post_form(
         TOKEN_URL,
-        data={
+        {
             "client_id": creds["clientId"],
             "client_secret": creds["clientSecret"],
             "refresh_token": _refresh_token,
             "grant_type": "refresh_token",
         },
-        timeout=20,
     )
-    if not res.ok:
-        raise RuntimeError(f"Token refresh failed ({res.status_code})")
-    j = res.json()
     _access_token = j["access_token"]
     _access_expiry = (time.time() + float(j.get("expires_in", 3600))) * 1000.0
     if not _user_email:
@@ -302,23 +368,9 @@ def _get_access_token() -> str:
 def _fetch_user_email() -> None:
     global _user_email
     try:
-        token = _get_access_token()
-        res = requests.get(
-            USERINFO_URL, headers={"Authorization": f"Bearer {token}"}, timeout=20
-        )
-        if res.ok:
-            _user_email = res.json().get("email")
+        _user_email = _get_json(USERINFO_URL, _get_access_token()).get("email")
     except Exception:
         pass  # email is cosmetic
-
-
-def _expiry_to_ms(dt: Any) -> float:
-    """google-auth gives a naive UTC datetime; convert to epoch ms."""
-    if dt is None:
-        return (time.time() + 3600) * 1000.0
-    import calendar as _cal
-
-    return _cal.timegm(dt.timetuple()) * 1000.0
 
 
 def _iso(epoch_seconds: float) -> str:
